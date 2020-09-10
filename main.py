@@ -315,5 +315,4 @@ def callback_inline(call: telebot.types.CallbackQuery):
         )
 
 
-bot.set_webhook()
 bot.polling()
