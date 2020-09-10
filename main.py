@@ -6,7 +6,7 @@ import requests
 
 
 TOKEN = '1317578331:AAEuCDPqvBDHMA68aWVuD5KdBAE92joNAqw'
-API = 'http://127.0.0.1:5000'
+API = ' https://beetroot-flask-pj.herokuapp.com'
 
 SUBJECTS = {}
 TEACHERS = {}
