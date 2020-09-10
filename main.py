@@ -6,7 +6,7 @@ import requests
 
 
 TOKEN = '1317578331:AAEuCDPqvBDHMA68aWVuD5KdBAE92joNAqw'
-API = 'http://127.0.0.1:5003/'
+API = 'http://127.0.0.1:5000'
 
 SUBJECTS = {}
 TEACHERS = {}
@@ -26,8 +26,7 @@ bot = telebot.TeleBot(TOKEN)
 
 
 def check_user(url, telegram_id):
-    resp = requests.post(f'{url}/telegram-check', json={'data': {'telegram_id': int(telegram_id)}})
-    print(resp)
+    resp = requests.post(f'{url}/telegram-check', json={'data': {'telegram_id': telegram_id}}).json()
     return resp
 
 
@@ -43,13 +42,27 @@ def create_user(message, url):
 
 
 def get_user(url, user_data):
-    global IS_TEACHER, USER_ID, TEACHERS, SUBJECTS, MY_SCHEDULE
+    global IS_TEACHER, USER_ID, TEACHERS, SUBJECTS, MY_SCHEDULE, STUDENTS
     resp = requests.post(f'{url}/telegram-sign-in', json={'data': user_data}).json()
     IS_TEACHER = resp['data']['is_teacher']
     USER_ID = resp['data']['id']
-    TEACHERS = {f"/{teacher['name'].replace(' ', '_')}": teacher['id'] for teacher in resp['data']['teachers']}
+    if IS_TEACHER:
+        STUDENTS = {f"/{student['name'].replace(' ', '_')}": student['id'] for student in resp['data']['students']}
+    else:
+        TEACHERS = {f"/{teacher['name'].replace(' ', '_')}": teacher['id'] for teacher in resp['data']['teachers']}
     SUBJECTS = {f"/{subject['title']}": subject['id'] for subject in resp['data']['subjects']}
-    MY_SCHEDULE = (f"{schedule['time']} - {schedule['teacher']['name']} - {schedule['subject']}" for schedule in resp['data']['schedule'])
+    if IS_TEACHER:
+        MY_SCHEDULE = tuple(f"{schedule['time']}"
+                            f" - {schedule['student']['name']}"
+                            f" - {schedule['subject']}"
+                            f" - {schedule['confirmed']}"
+                            for schedule in resp['data']['schedule'])
+    else:
+        MY_SCHEDULE = tuple(f"{schedule['time']} "
+                            f"- {schedule['teacher']['name']}"
+                            f" - {schedule['subject']}"
+                            f" - {schedule['confirmed']}"
+                            for schedule in resp['data']['schedule'])
 
     return resp
 
@@ -78,26 +91,34 @@ def get_all_students(url):
     return ALL_STUDENTS
 
 
+def confirm_schedule(message, url):
+    global USER_ID
+
+    requests.post(f'{url}/user/{USER_ID}/scheduling{message.text}')
+    return start(message)
+
+
 def helper_menu():
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     if IS_TEACHER:
-        return markup.add('/start', '/help', '/my_subjects', '/my_schedule', '/my_students', '/all_subjects', '/all_students')
+        return markup.add('/start', '/help', '/my_subjects', '/my_schedule', '/my_students', '/all_subjects', '/all_students', '/schedule_lesson')
     return markup.add('/start', '/help', '/my_subjects', '/my_schedule', '/my_teachers', '/all_subjects', '/all_teachers', '/schedule_lesson')
 
 
 @bot.message_handler(commands=['start', 'help'])
 def start(message):
-    if not check_user(API, message.from_user.id):
+    user = check_user(API, message.from_user.id)
+    if not user['exist']:
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add('teacher', 'student')
         bot.send_message(message.chat.id, 'Hy you are new user please choose role:', reply_markup=markup)
         bot.register_next_step_handler(message, create_user, url=API)
     else:
-        resp = get_user(API, message.chat.id)
-        print(resp)
+        students = "\n/my_subjects \n/my_teachers \n/my_schedule"
+        teachers = "\n/my_subjects \n/my_students \n/my_schedule \n/confirm_schedule"
+        get_user(API, {'telegram_id':  message.chat.id})
         message_to_user = f'Hy this bot made your study more comfortable -- ' \
-                          f'\n' \
-                          f'\n/my_subjects \n/my_teachers \n/my_schedule'
+                          f'{teachers if IS_TEACHER else students}'
         bot.reply_to(message, message_to_user, reply_markup=helper_menu())
 
 
@@ -115,12 +136,18 @@ def all_subjects(message):
 @bot.message_handler(commands=['my_subjects'])
 def my_subjects(message):
     resp = "\n".join(SUBJECTS.keys())
+    if not resp:
+        resp = 'Now subjects'
     bot.send_message(message.chat.id, resp)
 
 
 @bot.message_handler(commands=['my_schedule'])
 def my_schedule(message):
+    global MY_SCHEDULE
     resp = MY_SCHEDULE
+    if not resp:
+        bot.send_message(message.chat.id, 'Now schedules')
+        return
     bot.send_message(message.chat.id, "\n".join(resp))
 
 
@@ -139,9 +166,15 @@ def add_subject(message):
 def get_user_teachers_or_students(message):
     global TEACHERS, STUDENTS
     if message.text == '/my_teachers':
+        if not TEACHERS:
+            bot.send_message(message.chat.id, 'now teachers')
+            return
         resp = "\n".join(TEACHERS)
         resp = f'{resp} \n go back: /start'
     else:
+        if not STUDENTS:
+            bot.send_message(message.chat.id, 'now students')
+            return
         resp = "\n".join(STUDENTS)
         resp = f'{resp} \n go back: /start'
     bot.send_message(message.chat.id, resp)
@@ -167,23 +200,46 @@ def get_teachers_or_students(message):
 
 
 def connect_teacher_with_student(message):
-    global ALL_TEACHERS, USER_ID
+    global ALL_TEACHERS, ALL_STUDENTS, USER_ID, IS_TEACHER
     if message.text == '/start':
         return start(message)
-    for teacher, id in ALL_TEACHERS.items():
-        if teacher == message.text:
-            resp = requests.post (
-                f'{API}/telegram-user/{id}/{USER_ID}')
+    users = ALL_TEACHERS if not IS_TEACHER else ALL_STUDENTS
+    for user, _id in users.items():
+        if user == message.text:
+            if IS_TEACHER:
+                 resp = requests.post(
+                    f'{API}/telegram-user/{USER_ID}/{_id}')
+            else:
+                resp = requests.post(
+                    f'{API}/telegram-user/{_id}/{USER_ID}')
             bot.send_message(message.chat.id, resp.json()['message'])
             return
 
 
+@bot.message_handler(commands=['confirm_schedule'])
+def not_confirm_schedule(message):
+    global MY_SCHEDULE, API, USER_ID
+
+    resp = requests.get(f'{API}/user/{USER_ID}/schedule/not-confirmed').json()
+    if not resp['data']:
+        bot.send_message(message.chat.id, 'All schedule approved')
+        return start(message)
+    resp = "\n".join(f"/{schedule['id']} - {schedule['student']['name']} - {schedule['time']}" for schedule in resp['data'])
+    bot.send_message(message.chat.id, f"You must confirm these lessons: \n{resp}")
+    bot.register_next_step_handler(message, confirm_schedule, url=API)
+
+
 @bot.message_handler(commands=['schedule_lesson'])
 def schedule_lesson(message):
-    global TEACHERS
+    global TEACHERS, STUDENTS, IS_TEACHER
 
-    resp = "\n".join(TEACHERS)
-    bot.send_message(message.chat.id, f'Choose teacher: \n{resp}')
+    if IS_TEACHER:
+        users = STUDENTS
+    else:
+        users = TEACHERS
+
+    resp = "\n".join(users)
+    bot.send_message(message.chat.id, f'Choose: \n{resp}')
     bot.register_next_step_handler(message, schedule_lesson_subject)
 
 
@@ -191,18 +247,26 @@ def schedule_lesson_subject(message):
     global SCHEDULE
     global SUBJECTS
     global TEACHERS
+    global IS_TEACHER
 
-    SCHEDULE['teacher'] = TEACHERS.get(message.text)
+    if IS_TEACHER:
+        SCHEDULE['student'] = STUDENTS.get(message.text)
+        user_subjects = \
+            requests.get(f'{API}/user/{SCHEDULE["student"]}').json()[
+                'data']['subjects']
+
+    else:
+        SCHEDULE['teacher'] = TEACHERS.get(message.text)
+        user_subjects = \
+            requests.get(f'{API}/user/{SCHEDULE["teacher"]}').json()[
+                'data']['subjects']
     resp = ''
-    teacher_subjects = \
-    requests.get(f'{API}/user/{SCHEDULE["teacher"]}').json()[
-        'data']['subjects']
-    teacher_subjects = tuple(f"/{subject['title']}" for subject in teacher_subjects)
+    user_subjects = tuple(f"/{subject['title']}" for subject in user_subjects)
     for subject in SUBJECTS:
-        if subject in teacher_subjects:
+        if subject in user_subjects:
             resp += f"\n {subject}"
     if not resp:
-        bot.send_message(message.chat.id, 'This teacher has not subjects. Choose another')
+        bot.send_message(message.chat.id, 'This user has not subjects. Choose another')
         return schedule_lesson(message)
     bot.send_message(message.chat.id, f'Choose subject: \n{resp}')
     bot.register_next_step_handler(message, calendar)
@@ -226,14 +290,17 @@ def calendar(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(calendar_1.prefix))
 def callback_inline(call: telebot.types.CallbackQuery):
-    global SCHEDULE
+    global SCHEDULE, IS_TEACHER, USER_ID
     name, action, year, month, day = call.data.split(calendar_1.sep)
     date = telebot_calendar.calendar_query_handler(
         bot=bot, call=call, name=name, action=action, year=year, month=month, day=day
     )
     if action == "DAY":
         SCHEDULE['time'] = date.strftime('%d-%m-%Y')
-        SCHEDULE['student'] = USER_ID
+        if IS_TEACHER:
+            SCHEDULE['teacher'] = USER_ID
+        else:
+            SCHEDULE['student'] = USER_ID
         requests.post(f'{API}/scheduling', json={'data': SCHEDULE})
         bot.send_message(
             chat_id=call.from_user.id,
@@ -248,4 +315,5 @@ def callback_inline(call: telebot.types.CallbackQuery):
         )
 
 
+bot.set_webhook()
 bot.polling()
