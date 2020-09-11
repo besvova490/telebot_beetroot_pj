@@ -22,7 +22,7 @@ ALL_STUDENTS = {}
 
 calendar_1 = CallbackData("calendar_1", "action", "year", "month", "day")
 
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.AsyncTeleBot(TOKEN)
 
 
 def check_user(url, telegram_id):
