@@ -5,7 +5,7 @@ from telebot_calendar import CallbackData
 import requests
 
 
-TOKEN = '1317578331:AAEuCDPqvBDHMA68aWVuD5KdBAE92joNAqw'
+
 API = ' https://beetroot-flask-pj.herokuapp.com'
 
 SUBJECTS = {}
