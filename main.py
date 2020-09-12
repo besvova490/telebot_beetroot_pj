@@ -258,7 +258,7 @@ def schedule_lesson_subject(message):
     else:
         SCHEDULE['teacher'] = TEACHERS.get(message.text)
         user_subjects = \
-            requests.get(f'{API}/user/{SCHEDULE["teacher"]}').json()[
+            requests.get(f'{API}/    {SCHEDULE["teacher"]}').json()[
                 'data']['subjects']
     resp = ''
     user_subjects = tuple(f"/{subject['title']}" for subject in user_subjects)
