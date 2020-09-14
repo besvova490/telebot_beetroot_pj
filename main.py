@@ -15,9 +15,9 @@ def check_user(url, telegram_id):
 
 
 def create_user(message, url):
-    user_data = {'telegram_id': str(message.from_user.id),
-                 'first_name': message.from_user.first_name,
-                 'last_name': message.from_user.last_name,
+    user_data = {'telegram_id': message.from_user.id,
+                 'first_name': message.from_user.first_name if message.from_user.first_name else '',
+                 'last_name': message.from_user.last_name if message.from_user.last_name else '',
                  'teacher': True if message.text == 'teacher' else False}
     resp = requests.post(f'{url}/telegram-sign-up',
                          json={'data': user_data})
