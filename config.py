@@ -2,7 +2,7 @@ import datetime
 from telebot_calendar import CallbackData
 
 
-TOKEN = ''
+TOKEN = '1317578331:AAEuCDPqvBDHMA68aWVuD5KdBAE92joNAqw'
 API = 'https://beetroot-besvova490.herokuapp.com'
 
 SAVED_DATA = {'subjects': {}, 'teachers': {}, 'students': {},
