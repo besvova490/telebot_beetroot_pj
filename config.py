@@ -3,8 +3,8 @@ import telebot
 from telebot_calendar import CallbackData
 
 
-TOKEN = '1317578331:AAEuCDPqvBDHMA68aWVuD5KdBAE92joNAqw'
-API = 'http://127.0.0.1:5001'
+TOKEN = ''
+API = ''
 
 SAVED_DATA = {'subjects': {}, 'teachers': {}, 'students': {},
               'my_schedule': [], 'is_teacher': False, 'user_id': None,
