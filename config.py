@@ -3,8 +3,9 @@ import telebot
 from telebot_calendar import CallbackData
 
 
-TOKEN = ''
-API = ''
+TOKEN = '1317578331:AAEuCDPqvBDHMA68aWVuD5KdBAE92joNAqw'
+API = 'https://beetroot-besvova490.herokuapp.com'
+
 SAVED_DATA = {'subjects': {}, 'teachers': {}, 'students': {}, 'email': '',
               'my_schedule': [], 'is_teacher': False, 'user_id': None,
               'schedule': {
