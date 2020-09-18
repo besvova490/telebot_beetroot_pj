@@ -69,9 +69,9 @@ def add_subject(message, subject_id):
 def get_all_users(is_teacher=False):
     if is_teacher:
         resp = requests.get(f"{API}/students")
-        return resp.json()['data']
+        return resp.json()['items']
     resp = requests.get(f"{API}/tutors")
-    return resp.json()['data']
+    return resp.json()['items']
 
 
 def get_all_subjects():
@@ -81,14 +81,14 @@ def get_all_subjects():
 
 def get_not_approved_schedule():
     resp = requests.get(
-        f'{API}/user/{SAVED_DATA["user_id"]}/schedule/not-confirmed')
+        f'{API}/user/{SAVED_DATA["user_id"]}/schedule-not-confirmed')
     return resp
 
 
 def get_all_user_subjects(user_id):
     resp = requests.get(
         f'{API}/user/{user_id}'
-    ).json()['data']['subjects']
+    ).json()['items']['subjects']
     return resp
 
 
