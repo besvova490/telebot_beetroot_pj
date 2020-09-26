@@ -6,7 +6,8 @@ import time
 from bot_requests import (add_subject, create_schedule, get_user, get_all_users,
                           get_all_subjects, get_not_approved_schedule,
                           get_all_user_subjects, create_subject,
-                          confirm_schedule, connect_teacher_with_student)
+                          confirm_schedule, connect_teacher_with_student,
+                          send_schedule_email)
 from config import SAVED_DATA, calendar_1, bot
 from telebot import types
 
@@ -27,10 +28,6 @@ def start_markup():
     return markup
 
 
-def test():
-    print('test')
-
-
 @bot.message_handler(commands=['start', 'help'])
 def start(message):
     resp = get_user(message, message.from_user.id)
@@ -40,18 +37,18 @@ def start(message):
         SAVED_DATA['user_id'] = resp['items']['id']
         if SAVED_DATA['is_teacher']:
             SAVED_DATA['students'] = {
-                f"/{users['name'].replace(' ', '_')}": users['id'] for users in
+                f"/{users['full_name'].replace(' ', '_')}": users['id'] for users in
                 resp['items']['users']}
         else:
             SAVED_DATA['teachers'] = {
-                f"/{users['name'].replace(' ', '_')}": users['id'] for users in
+                f"/{users['full_name'].replace(' ', '_')}": users['id'] for users in
                 resp['items']['users']}
         SAVED_DATA['subjects'] = {f"/{subject['title']}": subject['id'] for
                                   subject
                                   in resp['items']['subjects']}
         SAVED_DATA['my_schedule'] = resp['items']['lesson_date']
-        students = "\n/all_subjects \n/all_teachers"
-        teachers = "\n/all_subjects \n/all_students" \
+        students = "\n/all_subjects \n/all_teachers \n/export_schedule"
+        teachers = "\n/all_subjects \n/all_students \n/export_schedule" \
                    " \n/my_schedule \n/confirm_schedule"
         message_to_user = f'Hy this bot made your study more comfortable' \
                           f'{teachers if SAVED_DATA["is_teacher"] else students}'
@@ -61,8 +58,10 @@ def start(message):
 
 @bot.message_handler(commands=['create_subject'])
 def new_subject(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('cancel')
     bot.send_message(message.chat.id, 'Please write tittle of'
-                                      'lesson but it mas by unique')
+                                      'lesson but it mas by unique', reply_markup=markup)
     bot.register_next_step_handler(message, create_subject)
 
 
@@ -70,6 +69,9 @@ def new_subject(message):
 def all_subjects(message):
     markup = types.InlineKeyboardMarkup()
     resp = get_all_subjects()
+    if not resp.json().get('items', False):
+        bot.send_message(message.chat.id, 'Subjects not exist')
+        return start(message)
     for subject in resp.json()['items']:
         markup.add(types.InlineKeyboardButton(
             text=subject['title'],
@@ -90,7 +92,7 @@ def my_schedule(message):
     resp = '\n'.join(
         f"{schedule['subject']} -- "
         f"{schedule['time'].replace(':00 GMT', '')}" for schedule in
-        SAVED_DATA['my_schedule'] if schedule['confirmation'])
+        SAVED_DATA['my_schedule'] if schedule['status'])
     if not resp:
         bot.send_message(message.chat.id, 'Now schedules')
         return
@@ -117,18 +119,23 @@ def get_user_teachers_or_students(message):
 @bot.message_handler(commands=['all_teachers', 'all_students'])
 def get_teachers_or_students(message):
     resp = get_all_users(SAVED_DATA['is_teacher'])
-    if not resp:
+    if not resp.get('items', False):
         bot.send_message(message.chat.id,
                          f'Now {"students" if SAVED_DATA["is_teacher"] else "teachers"}')
         return start(message)
     markup = types.InlineKeyboardMarkup()
-    for user in resp:
+    for user in resp['items']:
         markup.add(types.InlineKeyboardButton(
-            text=user['name'],
+            text=user['full_name'],
             callback_data=f'all_users_:{user["id"]}'))
     bot.send_message(message.chat.id,
                      f'All {"Students:" if SAVED_DATA["is_teacher"] else "Teachers:"}',
                      reply_markup=markup)
+
+
+@bot.message_handler(commands=['export_schedule'])
+def export_schedule(message):
+    send_schedule_email(message)
 
 
 @bot.message_handler(commands=['confirm_schedule'])
@@ -140,7 +147,7 @@ def not_confirm_schedule(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for schedule in resp['items']:
         markup.add(types.InlineKeyboardButton(
-            text=f"{schedule['lesson_time'].replace('00:00:00 GMT', '')} - {schedule['subject']['title']}",
+            text=f"{schedule['time'].replace('00:00:00 GMT', '')} - {schedule['subject']}",
             callback_data=f"not_confirmed_schedule_:{schedule['id']}"))
         markup.add(types.InlineKeyboardButton(
             text='\u274C',
@@ -165,14 +172,15 @@ def schedule_lesson(message):
 def schedule_lesson_subject(message):
     if message.text == '/start':
         return start(message)
+    SAVED_DATA['schedule']['users'] = []
     if SAVED_DATA['is_teacher']:
-        SAVED_DATA['schedule']['student'] = SAVED_DATA['students'].get(
-            message.text)
-        user_subjects = get_all_user_subjects(SAVED_DATA["schedule"]["student"])
+        user = SAVED_DATA['students'].get(message.text)
+        SAVED_DATA['schedule']['users'].append(user)
+        user_subjects = get_all_user_subjects(user)
     else:
-        SAVED_DATA['schedule']['teacher'] = SAVED_DATA['teachers'].get(
-            message.text)
-        user_subjects = get_all_user_subjects(SAVED_DATA["schedule"]["teacher"])
+        user = SAVED_DATA['teachers'].get(message.text)
+        SAVED_DATA['schedule']['users'].append(user)
+        user_subjects = get_all_user_subjects(user)
     resp = ''
     user_subjects = tuple(f"/{subject['title']}" for subject in user_subjects)
     for subject in SAVED_DATA['subjects']:
@@ -235,7 +243,8 @@ def callback_inline(call: types.CallbackQuery):
         return confirm_schedule(call.message, schedule_id, False)
     elif 'time_' in call.data:
         lesson_time = re.search(r'(?<=_:).*', call.data).group()
-        SAVED_DATA['schedule']['time'] = lesson_time
+        lesson_time = datetime.datetime.strptime(lesson_time, '%Y-%m-%d %H:%M:%S')
+        SAVED_DATA['schedule']['lesson_time'] = lesson_time.strftime('%Y-%m-%dT%H:%M:%SZ')
         create_schedule(SAVED_DATA['schedule'])
         bot.send_message(
             chat_id=call.from_user.id,
@@ -249,13 +258,10 @@ def callback_inline(call: types.CallbackQuery):
         day=day
     )
     if action == "DAY":
-        if date.strftime('%d-%m-%Y') < datetime.datetime.now().strftime('%d-%m-%Y'):
-            bot.send_message(call.message.chat.id, 'You can choose date older than today, try one more time')
+        if date < datetime.datetime.now():
+            bot.send_message(call.message.chat.id, "You can choose date older than today, try one more time")
             return schedule_lesson(call.message)
-        if SAVED_DATA['is_teacher']:
-            SAVED_DATA['schedule']['teacher'] = SAVED_DATA['user_id']
-        else:
-            SAVED_DATA['schedule']['student'] = SAVED_DATA['user_id']
+        SAVED_DATA['schedule']['users'].append(SAVED_DATA['user_id'])
         return clock(call.message, date)
     elif action == "CANCEL":
         bot.send_message(
@@ -263,7 +269,7 @@ def callback_inline(call: types.CallbackQuery):
             text="Cancellation \ngo too main: \start",
             reply_markup=types.ReplyKeyboardRemove(),
         )
-    return start(call.message)
+        return start(call.message)
 
 
 if __name__ == '__main__':
